@@ -107,8 +107,12 @@ private:
   // **************
 
   void Update(const common::UpdateInfo &_info) const {
-    // get rotational velocity of sprocket
-    const double sprocket_vel(sprocket_joint_->GetVelocity(0));
+    // Ignore tiny passive back-drive caused by contact while still following
+    // ros2_control velocity commands, which are visible as real joint velocity.
+    double sprocket_vel(sprocket_joint_->GetVelocity(0));
+    if (std::abs(sprocket_vel) < 0.02) {
+      sprocket_vel = 0.0;
+    }
 
     // set velocities of track segments according to the sprocket velocity
     for (const boost::function< void(const double) > &segment_updater : segment_updaters_) {

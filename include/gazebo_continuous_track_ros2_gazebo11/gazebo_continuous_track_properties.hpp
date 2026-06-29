@@ -123,22 +123,21 @@ private:
          element_elem = element_elem->GetNextElement("element")) {
       Pattern::Element element;
 
-      // []::[collision]
-      // Gazebo 11 can crash when dynamically loaded ODE links receive SDF elements
-      // created from a fresh schema. Keep the first collision from the original
-      // sdformat tree, which preserves the element metadata Gazebo expects.
+      // []::[collision] (multiple, *)
       if (element_elem->HasElement("collision")) {
-        element.collision_sdfs.push_back(element_elem->GetElement("collision")->Clone());
+        const sdf::ElementPtr base_collision(element_elem->GetElement("collision")->Clone());
+        const std::vector< std::string > collision_blocks(ChildBlocks(element_elem, "collision"));
+        for (const std::string &collision_block : collision_blocks) {
+          element.collision_sdfs.push_back(CollisionFromBase(base_collision, collision_block));
+        }
       }
 
       // []::[visual] (multiple, *)
       if (element_elem->HasElement("visual")) {
         const sdf::ElementPtr base_visual(element_elem->GetElement("visual")->Clone());
         const std::vector< std::string > visual_blocks(ChildBlocks(element_elem, "visual"));
-        if (visual_blocks.size() > 1) {
-          element.visual_sdfs.push_back(VisualFromBase(base_visual, visual_blocks[1]));
-        } else {
-          element.visual_sdfs.push_back(base_visual);
+        for (const std::string &visual_block : visual_blocks) {
+          element.visual_sdfs.push_back(VisualFromBase(base_visual, visual_block));
         }
       }
 
@@ -178,12 +177,26 @@ private:
     if (visual->HasElement("pose")) {
       visual->GetElement("pose")->Set(ParsePose(_visual_xml));
     }
-    const ignition::math::Vector3d size(ParseSize(_visual_xml));
     sdf::ElementPtr geometry(visual->GetElement("geometry"));
-    if (geometry->HasElement("box")) {
+    if (geometry->HasElement("box") && HasInnerText(_visual_xml, "size")) {
+      const ignition::math::Vector3d size(ParseSize(_visual_xml));
       geometry->GetElement("box")->GetElement("size")->Set(size);
     }
     return visual;
+  }
+
+  static sdf::ElementPtr CollisionFromBase(const sdf::ElementPtr &_base_collision,
+                                           const std::string &_collision_xml) {
+    const sdf::ElementPtr collision(_base_collision->Clone());
+    if (collision->HasElement("pose")) {
+      collision->GetElement("pose")->Set(ParsePose(_collision_xml));
+    }
+    sdf::ElementPtr geometry(collision->GetElement("geometry"));
+    if (geometry->HasElement("box") && HasInnerText(_collision_xml, "size")) {
+      const ignition::math::Vector3d size(ParseSize(_collision_xml));
+      geometry->GetElement("box")->GetElement("size")->Set(size);
+    }
+    return collision;
   }
 
   static ignition::math::Pose3d ParsePose(const std::string &_xml) {
@@ -208,6 +221,13 @@ private:
     GZ_ASSERT(start != std::string::npos && end != std::string::npos,
               "Cannot extract ContinuousTrack pattern child value");
     return _xml.substr(start + open_tag.size(), end - start - open_tag.size());
+  }
+
+  static bool HasInnerText(const std::string &_xml, const std::string &_tag_name) {
+    const std::string open_tag("<" + _tag_name + ">");
+    const std::string close_tag("</" + _tag_name + ">");
+    const std::size_t start = _xml.find(open_tag);
+    return start != std::string::npos && _xml.find(close_tag, start) != std::string::npos;
   }
 
   // **************
